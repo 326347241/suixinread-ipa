@@ -28,24 +28,18 @@ jobs:
           cp pubspec.yaml buildios/pubspec.yaml
           cp ios/Runner/Info.plist buildios/ios/Runner/Info.plist
           rm -rf buildios/test
+          # 用我们手写的 Podfile（禁用签名），覆盖 flutter 生成的
+          cp ios/Podfile.template buildios/ios/Podfile
           perl -pi -e "s/IPHONEOS_DEPLOYMENT_TARGET = [\d.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g" buildios/ios/Runner.xcodeproj/project.pbxproj
-          perl -pi -e "s/platform :ios, ['\"]?[\d.]+['\"]?/platform :ios, '15.0'/" buildios/ios/Podfile
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
+          ls -la buildios/ios/Podfile
 
       - name: 获取 Flutter 依赖
         run: |
           cd buildios
           flutter pub get
 
-      - name: 生成 iOS 配置文件（含 Podfile）
-        # flutter create 不生成 Podfile；--config-only 只生成配置不编译，避免签名检查
-        run: |
-          cd buildios
-          flutter build ios --config-only 2>&1 | tee configonly.log
-          echo "=== Podfile ==="
-          ls -la ios/Podfile 2>/dev/null || echo "Podfile 仍不存在"
-
       - name: 安装 CocoaPods 依赖
-        # 用 runner 自带的 specs，不用 --repo-update（避免更新数百 MB 仓库超时）
         run: |
           cd buildios/ios
           set +e
@@ -123,5 +117,4 @@ jobs:
           path: |
             buildios/xcodebuild.log
             buildios/podinstall.log
-            buildios/configonly.log
           if-no-files-found: ignore
