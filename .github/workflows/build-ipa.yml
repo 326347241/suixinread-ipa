@@ -46,13 +46,19 @@ jobs:
       - name: 分析代码（仅输出诊断，不阻断构建）
         run: |
           cd buildios
-          flutter analyze || true
+          flutter analyze 2>&1 | tee analyze.log || true
 
       - name: 构建 Release IPA（无签名）
         # flutter build ipa 内部会自动执行 pod install，无需手动 --repo-update
         run: |
           cd buildios
-          flutter build ipa --release --no-codesign
+          flutter build ipa --release --no-codesign 2>&1 | tee build.log
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ]; then
+            echo "========== 构建失败，错误摘要 =========="
+            grep -iE "error|failed|exception|not found|undefined|isn't defined|cannot" build.log | head -60 || true
+            exit "$STATUS"
+          fi
 
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4
