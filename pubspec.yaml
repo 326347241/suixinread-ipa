@@ -1,0 +1,21 @@
+name: suixin_read
+description: 随心所阅 (Origo X) - iOS 阅读器 UI 高保真复刻工程
+publish_to: 'none'
+version: 3.1.520+261119053
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/Backgrounds/

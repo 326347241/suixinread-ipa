@@ -1,0 +1,62 @@
+name: Build iOS IPA
+
+# 在 GitHub 托管的 macOS 环境中自动构建随心所阅 IPA
+# 触发方式：push 到 main / 手动点击 Actions 里的 Run workflow
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14          # macOS + Xcode 由 GitHub 提供，无需自有 Mac
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 验证 Flutter 环境
+        run: flutter doctor -v
+
+      - name: 生成干净的 iOS 原生工程脚手架
+        # 先在空目录生成标准工程，再注入我们的 lib / assets / pubspec，避免覆盖源码
+        # 注意：本仓库根目录即 Flutter 工程根（pubspec.yaml 在根目录）
+        run: |
+          flutter create --platforms=ios --org com.niki --project-name xxread buildios
+          cp -R lib/. buildios/lib/
+          mkdir -p buildios/assets
+          cp -R assets/. buildios/assets/
+          cp pubspec.yaml buildios/pubspec.yaml
+          cp ios/Runner/Info.plist buildios/ios/Runner/Info.plist
+
+      - name: 安装 CocoaPods 依赖
+        run: |
+          cd buildios/ios
+          pod install --repo-update
+
+      - name: 获取 Flutter 依赖
+        run: |
+          cd buildios
+          flutter pub get
+
+      - name: 分析代码（输出诊断但不阻断构建）
+        run: |
+          cd buildios
+          flutter analyze || true
+
+      - name: 构建 Release IPA（无签名）
+        run: |
+          cd buildios
+          flutter build ipa --release --no-codesign
+
+      - name: 上传 IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 随心所阅-3.1.520-ipa
+          path: buildios/build/ios/ipa/*.ipa
+          if-no-files-found: error
