@@ -34,6 +34,8 @@ jobs:
           cp -R assets/. buildios/assets/
           cp pubspec.yaml buildios/pubspec.yaml
           cp ios/Runner/Info.plist buildios/ios/Runner/Info.plist
+          # 删除 flutter create 生成的默认测试文件（引用占位包名，无意义且会报 analyze 错误）
+          rm -rf buildios/test
           # 提高 iOS 部署目标，避免新版 Flutter 插件的最低版本报错
           perl -pi -e "s/IPHONEOS_DEPLOYMENT_TARGET = [\d.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g" buildios/ios/Runner.xcodeproj/project.pbxproj
           perl -pi -e "s/platform :ios, ['\"]?[\d.]+['\"]?/platform :ios, '15.0'/" buildios/ios/Podfile
@@ -48,20 +50,34 @@ jobs:
           cd buildios
           flutter analyze 2>&1 | tee analyze.log || true
 
-      - name: 构建 Release IPA（无签名）
-        # flutter build ipa 内部会自动执行 pod install，无需手动 --repo-update
+      - name: 构建 App（Xcode archive）
+        # flutter build ipa 在新版 Flutter 下即使 --no-codesign 也强制要求 Development Team，
+        # 但 Xcode archive 本身能成功。这里只做 archive，随后手动打包成 IPA。
         run: |
           cd buildios
           set +e
           flutter build ipa --release --no-codesign 2>&1 | tee build.log
-          STATUS=${PIPESTATUS[0]}
           set -e
-          if [ "$STATUS" -ne 0 ]; then
-            echo "::group::构建错误详情"
-            grep -iE "error|failed|exception|not found|undefined|isn't defined|cannot|warning" build.log | head -80 || true
-            echo "::endgroup::"
-            exit "$STATUS"
+          echo "flutter build ipa 完成（退出码 ${PIPESTATUS[0]}），检查 archive 产物"
+          ls -la build/ios/archive/Runner.xcarchive/Products/Applications/ 2>/dev/null || true
+
+      - name: 手动打包 IPA（未签名）
+        # 把 archive 产出的 Runner.app 按标准 IPA 结构压缩：Payload/Runner.app -> .ipa
+        run: |
+          cd buildios
+          APP="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::找不到 archive 产物 Runner.app，Xcode 编译可能失败"
+            grep -iE "error|failed|exception" build.log | head -60 || true
+            exit 1
           fi
+          mkdir -p ipa_stage/Payload
+          cp -R "$APP" ipa_stage/Payload/Runner.app
+          cd ipa_stage
+          zip -qry "../build/ios/ipa/随心所阅-3.1.520.ipa" Payload
+          cd ..
+          ls -lh build/ios/ipa/
+          echo "IPA 打包完成"
 
       - name: 上传 IPA 产物
         if: success()
