@@ -50,28 +50,28 @@ jobs:
           cd buildios
           flutter analyze 2>&1 | tee analyze.log || true
 
-      - name: 构建 App（Xcode archive）
-        # flutter build ipa 在新版 Flutter 下即使 --no-codesign 也强制要求 Development Team，
-        # 但 Xcode archive 本身能成功。这里只做 archive，随后手动打包成 IPA。
+      - name: 构建 App（无签名 .app）
+        # 使用 flutter build ios --no-codesign 只编译生成 .app，不做签名归档导出。
+        # 这样绕过 flutter build ipa 强制要求 Development Team 的限制。
         run: |
           cd buildios
-          set +e
-          flutter build ipa --release --no-codesign 2>&1 | tee build.log
-          set -e
-          echo "flutter build ipa 完成（退出码 ${PIPESTATUS[0]}），检查 archive 产物"
-          ls -la build/ios/archive/Runner.xcarchive/Products/Applications/ 2>/dev/null || true
+          flutter build ios --release --no-codesign 2>&1 | tee build.log
+          echo "=== 查找生成的 .app ==="
+          find build/ios -name "Runner.app" -type d 2>/dev/null
+          ls -la build/ios/iphoneos/ 2>/dev/null || true
 
       - name: 手动打包 IPA（未签名）
-        # 把 archive 产出的 Runner.app 按标准 IPA 结构压缩：Payload/Runner.app -> .ipa
+        # 把 .app 按标准 IPA 结构压缩：Payload/Runner.app -> .ipa
         run: |
           cd buildios
-          APP="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-          if [ ! -d "$APP" ]; then
-            echo "::error::找不到 archive 产物 Runner.app，Xcode 编译可能失败"
+          APP=$(find build/ios -name "Runner.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+            echo "::error::找不到 Runner.app，Xcode 编译可能失败"
             grep -iE "error|failed|exception" build.log | head -60 || true
             exit 1
           fi
-          mkdir -p ipa_stage/Payload
+          echo "使用 .app 路径: $APP"
+          mkdir -p build/ios/ipa ipa_stage/Payload
           cp -R "$APP" ipa_stage/Payload/Runner.app
           cd ipa_stage
           zip -qry "../build/ios/ipa/随心所阅-3.1.520.ipa" Payload
