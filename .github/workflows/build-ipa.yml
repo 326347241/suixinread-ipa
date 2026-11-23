@@ -20,6 +20,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: 诊断环境
+        run: echo "构建已启动 - macOS $(sw_vers -productVersion) - Flutter $(flutter --version | head -1)"
+
       - name: 验证 Flutter 环境
         run: flutter doctor -v
 
