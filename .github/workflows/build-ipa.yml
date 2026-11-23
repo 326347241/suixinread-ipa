@@ -56,21 +56,29 @@ jobs:
         run: |
           cd buildios
           flutter build ios --release --no-codesign 2>&1 | tee build.log
-          echo "=== 查找生成的 .app ==="
-          find build/ios -name "Runner.app" -type d 2>/dev/null
+          echo "=== iphoneos 目录内容 ==="
           ls -la build/ios/iphoneos/ 2>/dev/null || true
+          echo "=== Runner.app 内容 ==="
+          ls -la build/ios/iphoneos/Runner.app/ 2>/dev/null || true
 
       - name: 手动打包 IPA（未签名）
         # 把 .app 按标准 IPA 结构压缩：Payload/Runner.app -> .ipa
         run: |
           cd buildios
-          APP=$(find build/ios -name "Runner.app" -type d 2>/dev/null | head -1)
-          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
-            echo "::error::找不到 Runner.app，Xcode 编译可能失败"
+          APP="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::找不到 $APP，Xcode 编译可能失败"
             grep -iE "error|failed|exception" build.log | head -60 || true
             exit 1
           fi
+          # 校验 app 内含可执行文件，避免打出空包
+          if [ ! -f "$APP/Runner" ]; then
+            echo "::error::Runner.app 内没有可执行文件 Runner，可能是空包"
+            ls -la "$APP"
+            exit 1
+          fi
           echo "使用 .app 路径: $APP"
+          du -sh "$APP"
           mkdir -p build/ios/ipa ipa_stage/Payload
           cp -R "$APP" ipa_stage/Payload/Runner.app
           cd ipa_stage
@@ -87,11 +95,11 @@ jobs:
           path: buildios/build/ios/ipa/*.ipa
           if-no-files-found: error
 
-      - name: 上传诊断日志（失败时）
-        if: failure()
+      - name: 上传构建日志
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnostic-logs
+          name: build-log
           path: |
             buildios/build.log
             buildios/analyze.log
