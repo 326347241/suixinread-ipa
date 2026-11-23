@@ -52,17 +52,31 @@ jobs:
         # flutter build ipa 内部会自动执行 pod install，无需手动 --repo-update
         run: |
           cd buildios
+          set +e
           flutter build ipa --release --no-codesign 2>&1 | tee build.log
           STATUS=${PIPESTATUS[0]}
+          set -e
           if [ "$STATUS" -ne 0 ]; then
-            echo "========== 构建失败，错误摘要 =========="
-            grep -iE "error|failed|exception|not found|undefined|isn't defined|cannot" build.log | head -60 || true
+            echo "::group::构建错误详情"
+            grep -iE "error|failed|exception|not found|undefined|isn't defined|cannot|warning" build.log | head -80 || true
+            echo "::endgroup::"
             exit "$STATUS"
           fi
 
       - name: 上传 IPA 产物
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: 随心所阅-3.1.520-ipa
           path: buildios/build/ios/ipa/*.ipa
           if-no-files-found: error
+
+      - name: 上传诊断日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostic-logs
+          path: |
+            buildios/build.log
+            buildios/analyze.log
+          if-no-files-found: ignore
