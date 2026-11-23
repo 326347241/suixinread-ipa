@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14          # macOS + Xcode 由 GitHub 提供，无需自有 Mac
+    runs-on: macos-latest      # macOS + Xcode 由 GitHub 提供（免费 Intel 镜像）
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
