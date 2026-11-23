@@ -1,6 +1,6 @@
 name: Build iOS IPA
 
-# 在 GitHub 托管的 macOS 环境中自动构建随心所阅 IPA
+# 在 GitHub 托管的 macOS 环境中自动构建随心所阅 IPA（未签名）
 # 触发方式：push 到 main / 手动点击 Actions 里的 Run workflow
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest      # GitHub 提供的免费 macOS 镜像（含 Xcode）
+    runs-on: macos-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -19,14 +19,7 @@ jobs:
         with:
           channel: stable
 
-      - name: 诊断环境
-        run: |
-          echo "macOS $(sw_vers -productVersion)"
-          flutter --version
-          xcodebuild -version
-
-      - name: 生成干净的 iOS 原生工程并注入源码
-        # 先在空目录生成标准工程，再注入我们的 lib / assets / pubspec，避免覆盖源码
+      - name: 生成 iOS 工程并注入源码
         run: |
           flutter create --platforms=ios --org com.niki --project-name xxread buildios
           cp -R lib/. buildios/lib/
@@ -34,9 +27,7 @@ jobs:
           cp -R assets/. buildios/assets/
           cp pubspec.yaml buildios/pubspec.yaml
           cp ios/Runner/Info.plist buildios/ios/Runner/Info.plist
-          # 删除 flutter create 生成的默认测试文件（引用占位包名，无意义且会报 analyze 错误）
           rm -rf buildios/test
-          # 提高 iOS 部署目标，避免新版 Flutter 插件的最低版本报错
           perl -pi -e "s/IPHONEOS_DEPLOYMENT_TARGET = [\d.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g" buildios/ios/Runner.xcodeproj/project.pbxproj
           perl -pi -e "s/platform :ios, ['\"]?[\d.]+['\"]?/platform :ios, '15.0'/" buildios/ios/Podfile
 
@@ -45,39 +36,52 @@ jobs:
           cd buildios
           flutter pub get
 
-      - name: 分析代码（仅输出诊断，不阻断构建）
+      - name: 安装 CocoaPods 依赖
+        # 不用 --repo-update（那会更新数百 MB 仓库导致超时），用 runner 自带的 specs
         run: |
-          cd buildios
-          flutter analyze 2>&1 | tee analyze.log || true
+          cd buildios/ios
+          pod install
 
-      - name: 构建 App（无签名 .app）
-        # 使用 flutter build ios --no-codesign 只编译生成 .app，不做签名归档导出。
-        # 这样绕过 flutter build ipa 强制要求 Development Team 的限制。
+      - name: 用 xcodebuild 编译（完全禁用签名）
+        # 绕过 flutter build 命令强制要求 Development Team 的限制，直接调用 xcodebuild
         run: |
-          cd buildios
-          flutter build ios --release --no-codesign 2>&1 | tee build.log
-          echo "=== iphoneos 目录内容 ==="
-          ls -la build/ios/iphoneos/ 2>/dev/null || true
-          echo "=== Runner.app 内容 ==="
-          ls -la build/ios/iphoneos/Runner.app/ 2>/dev/null || true
+          cd buildios/ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/../build/ios/derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build 2>&1 | tee ../xcodebuild.log
+          STATUS=${PIPESTATUS[0]}
+          echo "xcodebuild 退出码: $STATUS"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::group::xcodebuild 错误"
+            grep -iE "error|failed|fatal" ../xcodebuild.log | head -60 || true
+            echo "::endgroup::"
+            exit "$STATUS"
+          fi
+          echo "=== 查找编译产物 ==="
+          find "$PWD/../build/ios/derived" -name "Runner.app" -type d
 
-      - name: 手动打包 IPA（未签名）
-        # 把 .app 按标准 IPA 结构压缩：Payload/Runner.app -> .ipa
+      - name: 手动打包 IPA
         run: |
           cd buildios
-          APP="build/ios/iphoneos/Runner.app"
-          if [ ! -d "$APP" ]; then
-            echo "::error::找不到 $APP，Xcode 编译可能失败"
-            grep -iE "error|failed|exception" build.log | head -60 || true
+          APP=$(find build/ios/derived -name "Runner.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+            echo "::error::找不到 Runner.app 编译产物"
             exit 1
           fi
-          # 校验 app 内含可执行文件，避免打出空包
           if [ ! -f "$APP/Runner" ]; then
-            echo "::error::Runner.app 内没有可执行文件 Runner，可能是空包"
+            echo "::error::Runner.app 缺少可执行文件 Runner（空包）"
             ls -la "$APP"
             exit 1
           fi
-          echo "使用 .app 路径: $APP"
+          echo "使用: $APP"
           du -sh "$APP"
           mkdir -p build/ios/ipa ipa_stage/Payload
           cp -R "$APP" ipa_stage/Payload/Runner.app
@@ -88,7 +92,6 @@ jobs:
           echo "IPA 打包完成"
 
       - name: 上传 IPA 产物
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: 随心所阅-3.1.520-ipa
@@ -100,7 +103,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: |
-            buildios/build.log
-            buildios/analyze.log
+          path: buildios/xcodebuild.log
           if-no-files-found: ignore
