@@ -37,10 +37,19 @@ jobs:
           flutter pub get
 
       - name: 安装 CocoaPods 依赖
-        # 不用 --repo-update（那会更新数百 MB 仓库导致超时），用 runner 自带的 specs
+        # 用 runner 自带的 specs，不用 --repo-update（避免更新数百 MB 仓库超时）
         run: |
           cd buildios/ios
-          pod install
+          set +e
+          pod install 2>&1 | tee ../podinstall.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::group::pod install 错误"
+            cat ../podinstall.log
+            echo "::endgroup::"
+            exit "$STATUS"
+          fi
 
       - name: 用 xcodebuild 编译（完全禁用签名）
         # 绕过 flutter build 命令强制要求 Development Team 的限制，直接调用 xcodebuild
@@ -103,5 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: buildios/xcodebuild.log
+          path: |
+            buildios/xcodebuild.log
+            buildios/podinstall.log
           if-no-files-found: ignore
