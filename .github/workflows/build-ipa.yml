@@ -52,6 +52,16 @@ jobs:
             echo "::endgroup::"
             exit "$STATUS"
           fi
+          # 把 Pods 的 xcconfig 引入 Flutter 配置（CocoaPods 因自定义配置未自动设置）
+          for cfg in Debug Release Profile; do
+            FL="Flutter/${cfg}.xcconfig"
+            PX="../Pods/Target Support Files/Pods-Runner/Pods-Runner.$(echo $cfg | tr A-Z a-z).xcconfig"
+            if [ -f "$FL" ] && [ -f "$PX" ]; then
+              grep -q "Pods-Runner" "$FL" || printf '\n#include "%s"\n' "$PX" >> "$FL"
+            fi
+          done
+          echo "=== Flutter/Release.xcconfig ==="
+          cat Flutter/Release.xcconfig 2>/dev/null || true
 
       - name: 用 xcodebuild 编译（完全禁用签名）
         # 绕过 flutter build 命令强制要求 Development Team 的限制，直接调用 xcodebuild
