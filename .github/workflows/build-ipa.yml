@@ -36,6 +36,14 @@ jobs:
           cd buildios
           flutter pub get
 
+      - name: 生成 iOS 配置文件（含 Podfile）
+        # flutter create 不生成 Podfile；--config-only 只生成配置不编译，避免签名检查
+        run: |
+          cd buildios
+          flutter build ios --config-only 2>&1 | tee configonly.log
+          echo "=== Podfile ==="
+          ls -la ios/Podfile 2>/dev/null || echo "Podfile 仍不存在"
+
       - name: 安装 CocoaPods 依赖
         # 用 runner 自带的 specs，不用 --repo-update（避免更新数百 MB 仓库超时）
         run: |
@@ -115,4 +123,5 @@ jobs:
           path: |
             buildios/xcodebuild.log
             buildios/podinstall.log
+            buildios/configonly.log
           if-no-files-found: ignore
