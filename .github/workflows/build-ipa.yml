@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest      # macOS + Xcode 由 GitHub 提供（免费 Intel 镜像）
+    runs-on: macos-latest      # GitHub 提供的免费 macOS 镜像（含 Xcode）
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -18,17 +18,15 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       - name: 诊断环境
-        run: echo "构建已启动 - macOS $(sw_vers -productVersion) - Flutter $(flutter --version | head -1)"
+        run: |
+          echo "macOS $(sw_vers -productVersion)"
+          flutter --version
+          xcodebuild -version
 
-      - name: 验证 Flutter 环境
-        run: flutter doctor -v
-
-      - name: 生成干净的 iOS 原生工程脚手架
+      - name: 生成干净的 iOS 原生工程并注入源码
         # 先在空目录生成标准工程，再注入我们的 lib / assets / pubspec，避免覆盖源码
-        # 注意：本仓库根目录即 Flutter 工程根（pubspec.yaml 在根目录）
         run: |
           flutter create --platforms=ios --org com.niki --project-name xxread buildios
           cp -R lib/. buildios/lib/
@@ -36,23 +34,22 @@ jobs:
           cp -R assets/. buildios/assets/
           cp pubspec.yaml buildios/pubspec.yaml
           cp ios/Runner/Info.plist buildios/ios/Runner/Info.plist
-
-      - name: 安装 CocoaPods 依赖
-        run: |
-          cd buildios/ios
-          pod install --repo-update
+          # 提高 iOS 部署目标，避免新版 Flutter 插件的最低版本报错
+          perl -pi -e "s/IPHONEOS_DEPLOYMENT_TARGET = [\d.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g" buildios/ios/Runner.xcodeproj/project.pbxproj
+          perl -pi -e "s/platform :ios, ['\"]?[\d.]+['\"]?/platform :ios, '15.0'/" buildios/ios/Podfile
 
       - name: 获取 Flutter 依赖
         run: |
           cd buildios
           flutter pub get
 
-      - name: 分析代码（输出诊断但不阻断构建）
+      - name: 分析代码（仅输出诊断，不阻断构建）
         run: |
           cd buildios
           flutter analyze || true
 
       - name: 构建 Release IPA（无签名）
+        # flutter build ipa 内部会自动执行 pod install，无需手动 --repo-update
         run: |
           cd buildios
           flutter build ipa --release --no-codesign
